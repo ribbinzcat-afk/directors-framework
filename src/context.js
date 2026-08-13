@@ -1,0 +1,145 @@
+/**
+ * Builds the message array a single stage sends to the model: system preamble, card/persona,
+ * World Info, recent history, upstream stage results, then the stage's own prompt.
+ *
+ * World Info is scanned ONCE PER RUN (not once per stage) via `scanWorldInfo()` below, and the
+ * result is threaded through to every stage that wants it. Two reasons: it's the same
+ * information every stage would get from the same history anyway, and - critically - the scan
+ * MUST run with `isDryRun: true` or it drives World Info's timed effects (sticky/cooldown/delay)
+ * for real, which would desync from what the actual reply generation does right after us.
+ */
+
+/**
+ * @param {ReturnType<import('./store.js').activePreset>} preset
+ * @param {any} stContext SillyTavern.getContext()
+ * @returns {Promise<{worldInfoBefore: string, worldInfoAfter: string, worldInfoDepthText: string}>}
+ */
+export async function scanWorldInfo(preset, stContext) {
+    const empty = { worldInfoBefore: '', worldInfoAfter: '', worldInfoDepthText: '' };
+    if (!preset.includeWorldInfo) return empty;
+    if (typeof stContext.getWorldInfoPrompt !== 'function') return empty;
+
+    const depth = preset.worldInfoScanDepth ?? preset.historyDepth;
+    const recent = getRecentHistory(stContext, depth);
+
+    // getWorldInfoPrompt expects "<name>: <mes>" strings, oldest-last (reverse chronological) -
+    // see chatForWI in SillyTavern's own Generate() (public/script.js).
+    const chatForWI = recent.map(m => `${m.name}: ${m.mes}`).reverse();
+
+    const fields = safeCardFields(stContext);
+    const globalScanData = {
+        personaDescription: fields.persona,
+        characterDescription: fields.description,
+        characterPersonality: fields.personality,
+        characterDepthPrompt: fields.charDepthPrompt,
+        scenario: fields.scenario,
+        creatorNotes: fields.creatorNotes,
+        trigger: 'normal',
+    };
+
+    try {
+        // isDryRun MUST be true: false would fire WORLD_INFO_ACTIVATED and advance sticky/cooldown
+        // timers for real, desyncing World Info state from the reply generation that follows.
+        const result = await stContext.getWorldInfoPrompt(chatForWI, stContext.maxContext, true, globalScanData);
+        const depthEntries = Array.isArray(result?.worldInfoDepth)
+            ? result.worldInfoDepth.map(e => (Array.isArray(e?.entries) ? e.entries.join('\n') : '')).filter(Boolean).join('\n')
+            : '';
+        return {
+            worldInfoBefore: result?.worldInfoBefore || '',
+            worldInfoAfter: result?.worldInfoAfter || '',
+            worldInfoDepthText: depthEntries,
+        };
+    } catch (error) {
+        console.error('[directors-framework] World Info scan failed:', error);
+        return empty;
+    }
+}
+
+function safeCardFields(stContext) {
+    try {
+        return typeof stContext.getCharacterCardFields === 'function'
+            ? stContext.getCharacterCardFields()
+            : {};
+    } catch (error) {
+        console.error('[directors-framework] getCharacterCardFields failed:', error);
+        return {};
+    }
+}
+
+/**
+ * @param {any} stContext
+ * @param {number} depth Number of most recent messages to include.
+ * @returns {{name: string, mes: string, isUser: boolean}[]} Oldest-first.
+ */
+export function getRecentHistory(stContext, depth) {
+    const chat = Array.isArray(stContext.chat) ? stContext.chat : [];
+    const n = Number.isFinite(depth) && depth > 0 ? depth : 0;
+    const slice = n > 0 ? chat.slice(-n) : chat.slice();
+    return slice
+        .filter(m => m && typeof m.mes === 'string' && !m.is_system)
+        .map(m => ({ name: m.name || (m.is_user ? stContext.name1 : stContext.name2), mes: m.mes, isUser: !!m.is_user }));
+}
+
+/**
+ * Assembles the full chat-completion-style message array for one stage.
+ * @param {import('./store.js').Preset} preset
+ * @param {import('./store.js').Stage} stage
+ * @param {any} stContext
+ * @param {{worldInfoBefore: string, worldInfoAfter: string, worldInfoDepthText: string}} worldInfo Pre-scanned, shared across stages.
+ * @param {Record<string, {stage: import('./store.js').Stage, output: string}>} priorResults Results of stages that already ran this run, keyed by stage id.
+ * @returns {{role: string, content: string}[]}
+ */
+export function buildStageMessages(preset, stage, stContext, worldInfo, priorResults) {
+    const messages = [];
+    const fields = safeCardFields(stContext);
+
+    const includeCard = preset.includeCard;
+    const includePersona = preset.includePersona;
+    const includeWorldInfo = stage.includeWorldInfo ?? preset.includeWorldInfo;
+
+    if (includeCard && (fields.description || fields.personality || fields.scenario)) {
+        const parts = [];
+        if (fields.description) parts.push(`Description: ${fields.description}`);
+        if (fields.personality) parts.push(`Personality: ${fields.personality}`);
+        if (fields.scenario) parts.push(`Scenario: ${fields.scenario}`);
+        messages.push({ role: 'system', content: parts.join('\n') });
+    }
+
+    if (includePersona && fields.persona) {
+        messages.push({ role: 'system', content: `User persona: ${fields.persona}` });
+    }
+
+    if (includeWorldInfo) {
+        const wiText = [worldInfo.worldInfoBefore, worldInfo.worldInfoDepthText, worldInfo.worldInfoAfter]
+            .filter(Boolean)
+            .join('\n');
+        if (wiText) {
+            messages.push({ role: 'system', content: `<world_info>\n${wiText}\n</world_info>` });
+        }
+    }
+
+    if (stage.includeHistory) {
+        const depth = stage.historyDepth ?? preset.historyDepth;
+        const history = getRecentHistory(stContext, depth);
+        for (const m of history) {
+            messages.push({ role: m.isUser ? 'user' : 'assistant', name: m.name, content: m.mes });
+        }
+    }
+
+    for (const depId of stage.dependsOn) {
+        const upstream = priorResults[depId];
+        if (upstream && upstream.output) {
+            messages.push({
+                role: 'system',
+                content: `[${upstream.stage.name}]\n${upstream.output}`,
+            });
+        }
+    }
+
+    const promptText = typeof stContext.substituteParams === 'function'
+        ? stContext.substituteParams(stage.prompt)
+        : stage.prompt;
+    messages.push({ role: stage.role, content: promptText });
+
+    return messages;
+}

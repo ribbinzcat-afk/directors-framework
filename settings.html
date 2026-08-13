@@ -1,0 +1,107 @@
+<div class="directors-framework-settings df-root">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Director's Framework</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <p>
+                <small>
+                    Run a chain of your own thinking steps - each with its own prompt, its own
+                    Connection Profile, and optional tool calls - before the final reply. The
+                    combined result is injected into the final prompt and, optionally, written
+                    into the reply's reasoning block.
+                </small>
+            </p>
+
+            <label class="checkbox_label" for="df_enabled">
+                <input id="df_enabled" type="checkbox" />
+                <span>Enable Director's Framework</span>
+            </label>
+            <label class="checkbox_label" for="df_status_bar">
+                <input id="df_status_bar" type="checkbox" />
+                <span>Show status bar while running</span>
+            </label>
+
+            <div class="df-run-on-types">
+                <small>Run before:</small>
+                <label class="checkbox_label"><input type="checkbox" class="df-run-type" value="normal" /><span>Normal replies</span></label>
+                <label class="checkbox_label"><input type="checkbox" class="df-run-type" value="regenerate" /><span>Regenerate</span></label>
+                <label class="checkbox_label"><input type="checkbox" class="df-run-type" value="swipe" /><span>Swipe</span></label>
+                <label class="checkbox_label"><input type="checkbox" class="df-run-type" value="continue" /><span>Continue</span></label>
+            </div>
+
+            <hr class="df-divider" />
+
+            <div class="df-preset-bar flex-container flexGap5">
+                <select id="df_preset_select" class="text_pole flex1"></select>
+                <div id="df_preset_new" class="menu_button menu_button_icon interactable" tabindex="0" title="New preset"><i class="fa-solid fa-plus"></i></div>
+                <div id="df_preset_rename" class="menu_button menu_button_icon interactable" tabindex="0" title="Rename preset"><i class="fa-solid fa-pen"></i></div>
+                <div id="df_preset_duplicate" class="menu_button menu_button_icon interactable" tabindex="0" title="Duplicate preset"><i class="fa-solid fa-copy"></i></div>
+                <div id="df_preset_delete" class="menu_button menu_button_icon interactable" tabindex="0" title="Delete preset"><i class="fa-solid fa-trash-can"></i></div>
+                <div id="df_preset_export" class="menu_button menu_button_icon interactable" tabindex="0" title="Export preset"><i class="fa-solid fa-file-export"></i></div>
+                <div id="df_preset_import" class="menu_button menu_button_icon interactable" tabindex="0" title="Import preset(s)"><i class="fa-solid fa-file-import"></i></div>
+                <input id="df_preset_import_file" type="file" accept=".json" hidden />
+            </div>
+
+            <div class="df-preset-settings">
+                <div class="df-field-row">
+                    <label for="df_inject_mode">Reasoning injection</label>
+                    <select id="df_inject_mode" class="text_pole">
+                        <option value="before-reasoning">Insert before existing reasoning</option>
+                        <option value="replace-reasoning">Replace reasoning entirely</option>
+                        <option value="prompt-only">Prompt only - don't touch reasoning</option>
+                    </select>
+                </div>
+                <div class="df-field-row">
+                    <label for="df_inject_role">Prompt injection role</label>
+                    <select id="df_inject_role" class="text_pole">
+                        <option value="system">System</option>
+                        <option value="user">User</option>
+                        <option value="assistant">Assistant</option>
+                    </select>
+                </div>
+                <div class="df-field-row">
+                    <label for="df_inject_depth">Prompt injection depth</label>
+                    <input id="df_inject_depth" type="number" min="0" class="text_pole" />
+                </div>
+                <div class="df-field-row df-field-row-wide">
+                    <label for="df_inject_template">Injection template <small>(use <code>{{output}}</code>)</small></label>
+                    <textarea id="df_inject_template" class="text_pole" rows="2"></textarea>
+                </div>
+                <div class="df-field-row">
+                    <label for="df_history_depth">History depth (default for stages)</label>
+                    <input id="df_history_depth" type="number" min="0" class="text_pole" />
+                </div>
+                <label class="checkbox_label" for="df_include_card"><input id="df_include_card" type="checkbox" /><span>Include character card (description/personality/scenario)</span></label>
+                <label class="checkbox_label" for="df_include_persona"><input id="df_include_persona" type="checkbox" /><span>Include user persona</span></label>
+                <label class="checkbox_label" for="df_include_world_info"><input id="df_include_world_info" type="checkbox" /><span>Include World Info / lorebook</span></label>
+            </div>
+
+            <hr class="df-divider" />
+
+            <div class="df-stages-header flex-container flexGap5">
+                <b>Stages</b>
+                <div id="df_stage_add" class="menu_button menu_button_icon interactable" tabindex="0">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>Add stage</span>
+                </div>
+            </div>
+            <p><small>Stages run top to bottom. A stage can only depend on stages above it - drag the handle to reorder.</small></p>
+
+            <div id="df_stages"></div>
+
+            <div id="df_last_run" class="df-last-run">
+                <div class="inline-drawer">
+                    <div class="inline-drawer-toggle inline-drawer-header">
+                        <b>Last run log</b>
+                        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+                    </div>
+                    <div class="inline-drawer-content" id="df_last_run_content">
+                        <p class="df-empty-hint"><small>No run yet.</small></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
