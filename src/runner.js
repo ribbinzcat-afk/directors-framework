@@ -130,6 +130,26 @@ async function runStage(stContext, stage, initialMessages, profileId, signal, on
     return lastContent;
 }
 
+/**
+ * ConnectionManagerRequestService.sendRequest wraps every failure - a missing API key, an
+ * unset model, a 401 from the provider, a deleted profile - as the same generic
+ * `new Error('API request failed', { cause: error })`. Unwrapping the cause chain here is
+ * the difference between a toast that says "API request failed" (useless) and one that says
+ * why (e.g. "Profile not found (ID: ...)" or the provider's actual error message).
+ * @param {unknown} error
+ */
+function describeError(error) {
+    const parts = [];
+    let current = error;
+    const seen = new Set();
+    while (current && typeof current === 'object' && !seen.has(current)) {
+        seen.add(current);
+        if (current.message) parts.push(current.message);
+        current = current.cause;
+    }
+    return parts.length > 0 ? parts.join(' - ') : String(error);
+}
+
 function composeFinalOutput(stages, results) {
     const parts = [];
     for (const stage of stages) {
@@ -173,6 +193,8 @@ export async function runPipeline(stContext, { type, dryRun }, onStatus) {
 
     /** @type {Record<string, {stage: import('./store.js').Stage, output: string}>} */
     const results = {};
+    /** @type {import('./store.js').Stage | null} Which stage was running when/if this throws. */
+    let currentStage = null;
 
     try {
         onStatus?.({ phase: 'world-info' });
@@ -180,9 +202,13 @@ export async function runPipeline(stContext, { type, dryRun }, onStatus) {
 
         for (const [index, stage] of enabledStages.entries()) {
             abortController.signal.throwIfAborted();
+            currentStage = stage;
             onStatus?.({ phase: 'stage', index, total: enabledStages.length, stage });
 
             const profileId = resolveProfileId(stContext, stage.profileId);
+            if (!profileId) {
+                throw new Error(`Stage "${stage.name}" has no Connection Profile selected and no profile is currently active - pick one in the stage or in the Connection Manager.`);
+            }
             const messages = buildStageMessages(preset, stage, stContext, worldInfo, results);
             const startedAt = Date.now();
             const output = await runStage(stContext, stage, messages, profileId, abortController.signal, onStatus);
@@ -198,8 +224,10 @@ export async function runPipeline(stContext, { type, dryRun }, onStatus) {
             onStatus?.({ phase: 'cancelled' });
         } else {
             console.error('[directors-framework] Pipeline failed:', error);
-            toastr.error(String(error?.message || error), "Director's Framework");
-            onStatus?.({ phase: 'error', error });
+            const reason = describeError(error);
+            const label = currentStage ? `Stage "${currentStage.name}" failed` : 'Pipeline failed';
+            toastr.error(reason, `Director's Framework - ${label}`, { timeOut: 8000 });
+            onStatus?.({ phase: 'error', error, stage: currentStage });
         }
         return null;
     } finally {
