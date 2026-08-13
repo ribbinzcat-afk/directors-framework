@@ -18,7 +18,13 @@ injected into the final prompt and, optionally, written into the reply's reasoni
 - **Injection**: the combined output of every stage marked "include in final" is inserted
   into the outgoing prompt at the latest message position, and — unless the preset is set
   to "prompt only" — written into the reply's reasoning block, either replacing the model's
-  own reasoning or placed before it.
+  own reasoning or placed before it. Independently, "show in chat" also prepends it to the
+  reply's *visible* text as a blockquote — useful because not every model/provider returns a
+  reasoning block at all, so relying on that alone can make the pipeline's work invisible.
+- **Rate-limit resilience**: a stage that fails with what looks like a provider rate limit
+  (429 / "too many requests" / quota) is retried automatically, twice, with a growing wait.
+  If several stages still get rate limited on the same API key, set "Delay between stages" on
+  the preset to space the requests out further.
 - **Presets**: a full stage pipeline is a preset. New / rename / duplicate / delete /
   export / import (JSON).
 - **Status bar**: a small bar above the chat input shows which stage is currently running,
@@ -80,6 +86,8 @@ Everything lives in `extension_settings['directors-framework']`. Each preset:
   includeCard: true,
   includePersona: true,
   includeWorldInfo: true,
+  showInChat: false,     // also prepend the combined output to the visible reply text
+  stageDelaySeconds: 0,  // wait this long before each stage after the first (rate-limit mitigation)
   stages: [{
     id, name, enabled: true,
     profileId: '',        // '' = use the currently selected Connection Profile
@@ -106,6 +114,7 @@ Open the browser console (F12) and look for lines prefixed with `[directors-fram
 | --- | --- |
 | Nothing happens on send | Extension not enabled, active preset has no enabled stages, or the generation type (regenerate/swipe/continue) isn't ticked under "Run before". |
 | A stage's output is empty | Check the profile assigned to it is valid (Last run log shows the exact prompt/response); a stage with tools enabled on a Text Completion profile silently runs without tools. |
-| Reasoning didn't change | Preset is set to "Prompt only" — the output still reaches the prompt, just not the reasoning block. |
+| Reasoning didn't change | Preset is set to "Prompt only" — the output still reaches the prompt, just not the reasoning block. Some models/providers don't return a reasoning block at all; turn on "show in chat" to guarantee visibility regardless. |
+| A stage keeps failing with a rate-limit message | It already retries twice automatically; if it still fails, set "Delay between stages" on the preset, or spread stages across different API keys/providers. |
 | Swiping away and back loses the reasoning | Shouldn't happen — the extension rewrites `swipe_info` at the same time as `extra.reasoning`. If you see this, please report it with the console log. |
 | Tool calls never fire | Tool calls require a Chat Completion connection profile; Text Completion profiles don't support them. |

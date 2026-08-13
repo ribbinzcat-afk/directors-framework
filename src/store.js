@@ -42,6 +42,8 @@ export const RUNNABLE_TYPES = ['normal', 'regenerate', 'swipe', 'continue'];
  * @property {boolean} includePersona
  * @property {boolean} includeWorldInfo
  * @property {number|null} worldInfoScanDepth null = use historyDepth
+ * @property {boolean} showInChat Also prepend the combined output to the reply's visible text, not just the reasoning block.
+ * @property {number} stageDelaySeconds Wait this long before each stage after the first. Helps avoid provider rate limits when several stages hit the same API key back to back.
  * @property {Stage[]} stages
  */
 
@@ -83,6 +85,8 @@ export function makePreset(overrides = {}) {
         includePersona: true,
         includeWorldInfo: true,
         worldInfoScanDepth: null,
+        showInChat: false,
+        stageDelaySeconds: 0,
         stages: [],
         ...overrides,
     };
@@ -389,6 +393,8 @@ export function sanitizeImportedPresets(data) {
             includePersona: rawPreset.includePersona !== false,
             includeWorldInfo: rawPreset.includeWorldInfo !== false,
             worldInfoScanDepth: Number.isFinite(rawPreset.worldInfoScanDepth) ? rawPreset.worldInfoScanDepth : null,
+            showInChat: !!rawPreset.showInChat,
+            stageDelaySeconds: Number.isFinite(rawPreset.stageDelaySeconds) ? Math.max(0, rawPreset.stageDelaySeconds) : 0,
             stages,
         });
         pruneForwardDependencies(preset);

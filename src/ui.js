@@ -267,6 +267,8 @@ function renderPresetFields(preset) {
     document.getElementById('df_include_card').checked = preset.includeCard;
     document.getElementById('df_include_persona').checked = preset.includePersona;
     document.getElementById('df_include_world_info').checked = preset.includeWorldInfo;
+    document.getElementById('df_show_in_chat').checked = preset.showInChat;
+    document.getElementById('df_stage_delay').value = String(preset.stageDelaySeconds);
 }
 
 function renderGlobalControls() {
@@ -564,6 +566,12 @@ function bindPresetFields(stContext) {
     });
     $('#df_include_world_info').on('input', function () {
         onPreset(p => { p.includeWorldInfo = $(this).prop('checked'); });
+    });
+    $('#df_show_in_chat').on('input', function () {
+        onPreset(p => { p.showInChat = $(this).prop('checked'); });
+    });
+    $('#df_stage_delay').on('input', function () {
+        onPreset(p => { p.stageDelaySeconds = Math.max(0, Number($(this).val()) || 0); });
     });
 }
 

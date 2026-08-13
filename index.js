@@ -2,8 +2,8 @@ import { extensionName, loadSettings, settings } from './src/store.js';
 import { runPipeline, cancelCurrentRun } from './src/runner.js';
 import {
     applyPromptInjection, clearPromptInjection,
-    setPendingReasoning, clearPendingReasoning,
-    applyPendingReasoningToMessage, renderReasoningUI,
+    setPendingOutput, clearPendingOutput,
+    applyPendingOutputToMessage, renderMessageIfTouched,
 } from './src/inject.js';
 import { showStatus, hideStatus, registerCancelHandler, describeStatusEvent } from './src/status.js';
 import { renderAll, renderLastRun, bindSettingsEvents } from './src/ui.js';
@@ -50,7 +50,7 @@ async function onGenerationAfterCommands(type, params, dryRun) {
     if (!result) return;
 
     applyPromptInjection(stContext, result.preset, result.finalText);
-    setPendingReasoning(result.preset.injectMode, result.finalText);
+    setPendingOutput(result.preset, result.finalText);
 
     if (settings().keepLastRun) {
         renderLastRun(result);
@@ -59,12 +59,13 @@ async function onGenerationAfterCommands(type, params, dryRun) {
 
 function onMessageReceived(messageId) {
     const stContext = SillyTavern.getContext();
-    applyPendingReasoningToMessage(stContext, messageId);
+    applyPendingOutputToMessage(stContext, messageId);
 }
 
 function onCharacterMessageRendered(messageId) {
     const stContext = SillyTavern.getContext();
-    renderReasoningUI(stContext, messageId);
+    // Only re-renders and saves if applyPendingOutputToMessage actually touched this message.
+    renderMessageIfTouched(stContext, messageId);
     stContext.saveChat?.();
 }
 
@@ -77,7 +78,7 @@ function onGenerationEnded() {
 function onGenerationStopped() {
     const stContext = SillyTavern.getContext();
     clearPromptInjection(stContext);
-    clearPendingReasoning();
+    clearPendingOutput();
     hideStatus();
 }
 

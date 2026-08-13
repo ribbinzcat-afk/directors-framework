@@ -24,6 +24,63 @@ function resolveProfileId(stContext, profileId) {
     return stContext.extensionSettings?.connectionManager?.selectedProfile || '';
 }
 
+const RATE_LIMIT_MAX_RETRIES = 2;
+const RATE_LIMIT_BASE_DELAY_MS = 5000;
+
+/**
+ * ConnectionManagerRequestService.sendRequest wraps every failure the same way, so the only
+ * way to spot a provider rate limit is to pattern-match the (unwrapped) error text. Not every
+ * provider phrases it the same way, but this catches the common ones (OpenAI-style
+ * "rate_limit_exceeded", plain "429", "too many requests", Gemini/Anthropic "quota").
+ * @param {unknown} error
+ */
+function isRateLimitError(error) {
+    const text = describeError(error).toLowerCase();
+    return /rate.?limit|too many requests|\b429\b|quota exceeded/.test(text);
+}
+
+/** @param {number} ms @param {AbortSignal} signal */
+function sleep(ms, signal) {
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) {
+            reject(signal.reason ?? new Error('Aborted'));
+            return;
+        }
+        const onAbort = () => {
+            clearTimeout(timer);
+            reject(signal.reason ?? new Error('Aborted'));
+        };
+        const timer = setTimeout(() => {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
+/**
+ * Retries a request up to RATE_LIMIT_MAX_RETRIES times, but only when the failure looks like
+ * a provider rate limit - any other error (bad profile, invalid model, network failure)
+ * fails immediately, since retrying those would just waste time before surfacing the same
+ * error. Delay doubles each attempt (5s, 10s).
+ * @param {() => Promise<any>} fn
+ * @param {{signal: AbortSignal, onStatus?: (info: object) => void, stage: import('./store.js').Stage}} opts
+ */
+async function withRateLimitRetry(fn, { signal, onStatus, stage }) {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            if (attempt >= RATE_LIMIT_MAX_RETRIES || !isRateLimitError(error)) {
+                throw error;
+            }
+            const delayMs = RATE_LIMIT_BASE_DELAY_MS * (attempt + 1);
+            onStatus?.({ phase: 'rate-limited', stage, attempt: attempt + 1, maxAttempts: RATE_LIMIT_MAX_RETRIES, delayMs });
+            await sleep(delayMs, signal);
+        }
+    }
+}
+
 /**
  * Builds the OpenAI-style tool definitions for a stage, respecting its name allowlist
  * (empty allowlist = every registered tool) and each tool's own shouldRegister() gate.
@@ -76,11 +133,9 @@ async function runStage(stContext, stage, initialMessages, profileId, signal, on
     }
 
     if (!useTools) {
-        const result = await svc.sendRequest(
-            profileId,
-            initialMessages,
-            stage.maxTokens,
-            { stream: false, signal, extractData: true },
+        const result = await withRateLimitRetry(
+            () => svc.sendRequest(profileId, initialMessages, stage.maxTokens, { stream: false, signal, extractData: true }),
+            { signal, onStatus, stage },
         );
         return typeof result === 'string' ? result : (result?.content ?? '');
     }
@@ -97,12 +152,9 @@ async function runStage(stContext, stage, initialMessages, profileId, signal, on
             ? { tools, tool_choice: stage.tools.mode === 'required' ? 'required' : 'auto' }
             : {};
 
-        const json = await svc.sendRequest(
-            profileId,
-            messages,
-            stage.maxTokens,
-            { stream: false, signal, extractData: false },
-            overridePayload,
+        const json = await withRateLimitRetry(
+            () => svc.sendRequest(profileId, messages, stage.maxTokens, { stream: false, signal, extractData: false }, overridePayload),
+            { signal, onStatus, stage },
         );
 
         lastContent = stContext.extractMessageFromData(json, 'openai');
@@ -202,6 +254,12 @@ export async function runPipeline(stContext, { type, dryRun }, onStatus) {
 
         for (const [index, stage] of enabledStages.entries()) {
             abortController.signal.throwIfAborted();
+
+            if (index > 0 && preset.stageDelaySeconds > 0) {
+                onStatus?.({ phase: 'delay', stage, delayMs: preset.stageDelaySeconds * 1000 });
+                await sleep(preset.stageDelaySeconds * 1000, abortController.signal);
+            }
+
             currentStage = stage;
             onStatus?.({ phase: 'stage', index, total: enabledStages.length, stage });
 

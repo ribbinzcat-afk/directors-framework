@@ -77,6 +77,10 @@ export function describeStatusEvent(event) {
             return `Director's Framework: stage ${event.index + 1}/${event.total} - ${event.stage.name}`;
         case 'tool-call':
             return `Director's Framework: ${event.stage.name} is calling a tool...`;
+        case 'delay':
+            return `Director's Framework: waiting ${Math.round(event.delayMs / 1000)}s before "${event.stage.name}"...`;
+        case 'rate-limited':
+            return `Director's Framework: rate limited, retrying "${event.stage.name}" in ${Math.round(event.delayMs / 1000)}s (${event.attempt}/${event.maxAttempts})...`;
         case 'done':
             return "Director's Framework: done";
         case 'cancelled':

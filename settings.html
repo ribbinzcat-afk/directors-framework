@@ -76,6 +76,12 @@
                 <label class="checkbox_label" for="df_include_card"><input id="df_include_card" type="checkbox" /><span>Include character card (description/personality/scenario)</span></label>
                 <label class="checkbox_label" for="df_include_persona"><input id="df_include_persona" type="checkbox" /><span>Include user persona</span></label>
                 <label class="checkbox_label" for="df_include_world_info"><input id="df_include_world_info" type="checkbox" /><span>Include World Info / lorebook</span></label>
+                <label class="checkbox_label" for="df_show_in_chat"><input id="df_show_in_chat" type="checkbox" /><span>Also show the combined output in the visible reply (not just the reasoning block)</span></label>
+                <div class="df-field-row">
+                    <label for="df_stage_delay">Delay between stages (seconds)</label>
+                    <input id="df_stage_delay" type="number" min="0" step="0.5" class="text_pole" />
+                </div>
+                <p><small>Stages already retry automatically on provider rate limits (up to twice, with a growing wait). Set a delay here too if the same key still gets rate limited with several stages back to back.</small></p>
             </div>
 
             <hr class="df-divider" />
