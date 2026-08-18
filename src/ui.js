@@ -4,8 +4,13 @@ import {
     addPreset, renamePreset, duplicatePreset, deletePreset,
     addStage, duplicateStage, deleteStage, reorderStages,
     exportPreset, importPresets,
+    addReviseTemplate, duplicateReviseTemplate, deleteReviseTemplate,
+    setDefaultReviseTemplate, reorderReviseTemplates,
     INJECT_MODES,
 } from './store.js';
+import { purgeShortTermMemory, purgeMediumTermMemory } from './memory.js';
+import { listPins, pinToLongTermMemory, unpinFromLongTermMemory, clearAllPins } from './pins.js';
+import { refreshReviseButtons } from './mesbuttons.js';
 
 const POPUP_TITLE = "Director's Framework";
 
@@ -49,7 +54,7 @@ function populateProfileSelect(stContext, selectEl, selectedProfileId) {
 }
 
 function refreshAllProfileSelects(stContext) {
-    for (const select of document.querySelectorAll('#df_stages .df-stage-profile')) {
+    for (const select of document.querySelectorAll('#df_stages .df-stage-profile, #df_memory_summary_profile, #df_revise_profile')) {
         populateProfileSelect(stContext, select, select.value);
     }
 }
@@ -166,6 +171,14 @@ function stageRowSkeleton() {
                     <option value="false">Exclude</option>
                 </select>
             </div>
+            <div class="df-field-row">
+                <label>Short-term memory</label>
+                <select class="df-stage-memory text_pole">
+                    <option value="">Use preset default</option>
+                    <option value="true">Include</option>
+                    <option value="false">Exclude</option>
+                </select>
+            </div>
             <label class="checkbox_label"><input type="checkbox" class="df-stage-include-final" /><span>Include this stage's output in the final injection</span></label>
 
             <div class="df-stage-depends">
@@ -203,6 +216,7 @@ function renderStageRow(stContext, preset, stage) {
     el.querySelector('.df-stage-include-history').checked = stage.includeHistory;
     el.querySelector('.df-stage-history-depth').value = stage.historyDepth ?? '';
     el.querySelector('.df-stage-world-info').value = stage.includeWorldInfo === null ? '' : String(stage.includeWorldInfo);
+    el.querySelector('.df-stage-memory').value = stage.includeMemory === null ? '' : String(stage.includeMemory);
     el.querySelector('.df-stage-include-final').checked = stage.includeInFinal;
     el.querySelector('.df-stage-tools-enabled').checked = stage.tools.enabled;
     el.querySelector('.df-stage-tools-mode').value = stage.tools.mode;
@@ -267,21 +281,181 @@ function renderPresetFields(preset) {
     document.getElementById('df_include_card').checked = preset.includeCard;
     document.getElementById('df_include_persona').checked = preset.includePersona;
     document.getElementById('df_include_world_info').checked = preset.includeWorldInfo;
+    document.getElementById('df_include_memory').checked = preset.includeMemory;
     document.getElementById('df_show_in_chat').checked = preset.showInChat;
     document.getElementById('df_stage_delay').value = String(preset.stageDelaySeconds);
 }
 
-function renderGlobalControls() {
+function renderGlobalControls(stContext) {
     const cfg = settings();
     document.getElementById('df_enabled').checked = cfg.enabled;
     document.getElementById('df_status_bar').checked = cfg.showStatusBar;
     for (const checkbox of document.querySelectorAll('.df-run-type')) {
         checkbox.checked = cfg.runOnTypes.includes(checkbox.value);
     }
+    document.getElementById('df_memory_enabled').checked = cfg.memory.enabled;
+    document.getElementById('df_memory_topk').value = String(cfg.memory.topK);
+
+    const medium = cfg.memory.medium;
+    document.getElementById('df_memory_medium_enabled').checked = medium.enabled;
+    document.getElementById('df_memory_medium_every').value = String(medium.everyNReplies);
+    document.getElementById('df_memory_medium_topk').value = String(medium.topK);
+    document.getElementById('df_memory_summary_prompt').value = medium.summaryPrompt;
+    populateProfileSelect(stContext, document.getElementById('df_memory_summary_profile'), medium.summaryProfileId);
+
+    document.getElementById('df_memory_long_enabled').checked = cfg.memory.long.enabled;
+    document.getElementById('df_memory_long_topk').value = String(cfg.memory.long.topK);
+    renderPinsList(stContext);
+
+    const revise = cfg.revise;
+    document.getElementById('df_revise_enabled').checked = revise.enabled;
+    document.getElementById('df_revise_show_button').checked = revise.showButton;
+    document.getElementById('df_revise_max_tokens').value = String(revise.maxTokens);
+    document.getElementById('df_revise_history_depth').value = String(revise.historyDepth);
+    document.getElementById('df_revise_include_history').checked = revise.includeHistory;
+    document.getElementById('df_revise_include_card').checked = revise.includeCard;
+    document.getElementById('df_revise_include_persona').checked = revise.includePersona;
+    document.getElementById('df_revise_include_world_info').checked = revise.includeWorldInfo;
+    document.getElementById('df_revise_include_memory').checked = revise.includeMemory;
+    populateProfileSelect(stContext, document.getElementById('df_revise_profile'), revise.profileId);
+    renderReviseTemplates();
+}
+
+// ---------------------------------------------------------------- revise templates
+
+function templateRowSkeleton() {
+    const el = document.createElement('div');
+    el.className = 'df-revise-template';
+    el.innerHTML = `
+        <div class="df-stage-head">
+            <div class="df-handle drag-handle fa-solid fa-grip-vertical" title="Drag to reorder"></div>
+            <input class="text_pole df-revise-template-name" type="text" autocomplete="off" />
+            <div class="df-icon-btn interactable fa-solid fa-star" data-action="set-default" tabindex="0" title="Use as the default template in the revise popup"></div>
+            <div class="df-icon-btn interactable fa-solid fa-copy" data-action="duplicate-template" tabindex="0" title="Duplicate template"></div>
+            <div class="df-icon-btn interactable fa-solid fa-trash-can" data-action="delete-template" tabindex="0" title="Delete template"></div>
+        </div>
+        <details class="df-log-details">
+            <summary>Prompt</summary>
+            <textarea class="text_pole df-revise-template-prompt" rows="6" autocomplete="off"></textarea>
+        </details>
+    `;
+    return el;
+}
+
+function renderTemplateRow(template, isDefault) {
+    const el = templateRowSkeleton();
+    el.dataset.id = template.id;
+    el.querySelector('.df-revise-template-name').value = template.name;
+    el.querySelector('.df-revise-template-prompt').value = template.prompt;
+    el.querySelector('[data-action="set-default"]').classList.toggle('df-revise-default-active', isDefault);
+    return el;
+}
+
+/** Renders the template list for the revise popup's dropdown. Global (not per-chat, not
+ * per-preset) - same scope as the rest of the revise config. */
+function renderReviseTemplates() {
+    const container = document.getElementById('df_revise_templates');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const revise = settings().revise;
+    for (const template of revise.templates) {
+        container.appendChild(renderTemplateRow(template, template.id === revise.defaultTemplateId));
+    }
+
+    // @ts-ignore - jQuery UI, same pattern as renderStages
+    $(container).sortable({
+        delay: getSortableDelay(),
+        handle: '.df-handle',
+        items: '> .df-revise-template',
+        stop: () => {
+            const order = [...container.querySelectorAll(':scope > .df-revise-template')].map(e => e.dataset.id);
+            reorderReviseTemplates(order);
+            renderReviseTemplates();
+        },
+    });
+}
+
+function bindReviseTemplatesEvents(stContext) {
+    const container = document.getElementById('df_revise_templates');
+
+    container.addEventListener('input', evt => {
+        const el = evt.target;
+        if (!(el instanceof HTMLElement)) return;
+        const row = el.closest('.df-revise-template');
+        const template = row && settings().revise.templates.find(t => t.id === row.dataset.id);
+        if (!template) return;
+
+        if (el.classList.contains('df-revise-template-name')) {
+            template.name = el.value;
+            save();
+        } else if (el.classList.contains('df-revise-template-prompt')) {
+            template.prompt = el.value;
+            save();
+        }
+    });
+
+    container.addEventListener('click', async evt => {
+        const button = evt.target instanceof HTMLElement ? evt.target.closest('[data-action]') : null;
+        if (!button) return;
+        const row = button.closest('.df-revise-template');
+        const template = row && settings().revise.templates.find(t => t.id === row.dataset.id);
+        if (!template) return;
+
+        if (button.dataset.action === 'set-default') {
+            setDefaultReviseTemplate(template.id);
+            renderReviseTemplates();
+        } else if (button.dataset.action === 'duplicate-template') {
+            duplicateReviseTemplate(template.id);
+            renderReviseTemplates();
+        } else if (button.dataset.action === 'delete-template') {
+            const confirmed = await stContext.Popup.show.confirm(POPUP_TITLE, `Delete the template "${template.name}"?`);
+            if (!confirmed) return;
+            deleteReviseTemplate(template.id);
+            renderReviseTemplates();
+        }
+    });
+}
+
+/**
+ * Renders the pinned long-term memories for the CURRENT chat. Pins are chat-scoped (stored in
+ * chat metadata, see memory.js's getChatMeta), so this needs to be called again on chat switch
+ * - not just at drawer mount time - or it'd keep showing the previous chat's pins.
+ * @param {any} stContext
+ */
+export function renderPinsList(stContext) {
+    const container = document.getElementById('df_memory_pins_list');
+    if (!container) return;
+
+    const pins = listPins(stContext);
+    if (pins.length === 0) {
+        container.innerHTML = '<p class="df-empty-hint"><small>No pins yet for this chat.</small></p>';
+        return;
+    }
+
+    container.innerHTML = '';
+    for (const pin of pins) {
+        const row = document.createElement('div');
+        row.className = 'df-pin-row';
+        row.dataset.id = pin.id;
+
+        const text = document.createElement('div');
+        text.className = 'df-pin-text';
+        text.textContent = pin.text;
+
+        const remove = document.createElement('div');
+        remove.className = 'df-icon-btn interactable fa-solid fa-xmark';
+        remove.title = 'Remove this pin';
+        remove.tabIndex = 0;
+        remove.dataset.action = 'unpin';
+
+        row.append(text, remove);
+        container.appendChild(row);
+    }
 }
 
 export function renderAll(stContext) {
-    renderGlobalControls();
+    renderGlobalControls(stContext);
     renderPresetSelect();
     const preset = activePreset();
     renderPresetFields(preset);
@@ -295,9 +469,21 @@ function formatDuration(ms) {
     return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
+function makePinButton(text) {
+    const btn = document.createElement('div');
+    btn.className = 'df-icon-btn interactable fa-solid fa-thumbtack';
+    btn.title = 'Pin this output to long-term memory';
+    btn.tabIndex = 0;
+    btn.dataset.action = 'pin';
+    btn.dataset.pinText = text || '';
+    return btn;
+}
+
 /**
  * Renders the "Last run log" drawer from a completed runner.js result: one block per stage
- * with the profile used, the prompt actually sent, the output, and how long it took.
+ * with the profile used, the prompt actually sent, the output, and how long it took. Each
+ * output has a pin button (delegated click handler bound once in bindGlobalControls) so a
+ * stage's output can be promoted straight to long-term memory without retyping it.
  * @param {{preset: object, results: Record<string, {stage: object, output: string, profileId: string, messages: {role:string,content:string}[], startedAt: number, finishedAt: number}>} | null} runResult
  */
 export function renderLastRun(runResult) {
@@ -341,7 +527,11 @@ export function renderLastRun(runResult) {
         outputLabel.className = 'df-log-output-label';
         outputLabel.textContent = 'Output';
 
-        block.append(promptDetails, outputLabel, outputPre);
+        const outputHeader = document.createElement('div');
+        outputHeader.className = 'df-log-output-header';
+        outputHeader.append(outputLabel, makePinButton(entry.output));
+
+        block.append(promptDetails, outputHeader, outputPre);
         content.appendChild(block);
     }
 
@@ -351,10 +541,13 @@ export function renderLastRun(runResult) {
         const header = document.createElement('div');
         header.className = 'df-log-header';
         header.textContent = 'Injected into final prompt';
+        const headerRow = document.createElement('div');
+        headerRow.className = 'df-log-output-header';
+        headerRow.append(header, makePinButton(runResult.finalText));
         const pre = document.createElement('pre');
         pre.className = 'df-log-output';
         pre.textContent = runResult.finalText;
-        finalBlock.append(header, pre);
+        finalBlock.append(headerRow, pre);
         content.appendChild(finalBlock);
     }
 }
@@ -418,6 +611,9 @@ function bindStagesEvents(stContext) {
                 save();
             } else if (el.classList.contains('df-stage-world-info')) {
                 stage.includeWorldInfo = el.value === '' ? null : el.value === 'true';
+                save();
+            } else if (el.classList.contains('df-stage-memory')) {
+                stage.includeMemory = el.value === '' ? null : el.value === 'true';
                 save();
             } else if (el.classList.contains('df-stage-include-final')) {
                 stage.includeInFinal = el.checked;
@@ -567,6 +763,9 @@ function bindPresetFields(stContext) {
     $('#df_include_world_info').on('input', function () {
         onPreset(p => { p.includeWorldInfo = $(this).prop('checked'); });
     });
+    $('#df_include_memory').on('input', function () {
+        onPreset(p => { p.includeMemory = $(this).prop('checked'); });
+    });
     $('#df_show_in_chat').on('input', function () {
         onPreset(p => { p.showInChat = $(this).prop('checked'); });
     });
@@ -598,6 +797,147 @@ function bindGlobalControls(stContext) {
         addStage(preset.id);
         renderStages(stContext, activePreset());
     });
+
+    $('#df_memory_enabled').on('input', function () {
+        settings().memory.enabled = $(this).prop('checked');
+        save();
+    });
+    $('#df_memory_topk').on('input', function () {
+        settings().memory.topK = Math.max(1, Number($(this).val()) || 1);
+        save();
+    });
+    $('#df_memory_forget').on('click', async () => {
+        const confirmed = await stContext.Popup.show.confirm(POPUP_TITLE, "Forget this chat's short-term memory? This cannot be undone.");
+        if (!confirmed) return;
+        const ok = await purgeShortTermMemory(stContext);
+        ok ? toastr.success('Short-term memory cleared for this chat.', POPUP_TITLE)
+            : toastr.error('Could not clear short-term memory - see console.', POPUP_TITLE);
+    });
+
+    $('#df_memory_medium_enabled').on('input', function () {
+        settings().memory.medium.enabled = $(this).prop('checked');
+        save();
+    });
+    $('#df_memory_medium_every').on('input', function () {
+        settings().memory.medium.everyNReplies = Math.max(1, Number($(this).val()) || 1);
+        save();
+    });
+    $('#df_memory_medium_topk').on('input', function () {
+        settings().memory.medium.topK = Math.max(1, Number($(this).val()) || 1);
+        save();
+    });
+    $('#df_memory_summary_profile').on('input', function () {
+        settings().memory.medium.summaryProfileId = $(this).val();
+        save();
+    });
+    $('#df_memory_summary_prompt').on('input', function () {
+        settings().memory.medium.summaryPrompt = String($(this).val());
+        save();
+    });
+    $('#df_memory_medium_forget').on('click', async () => {
+        const confirmed = await stContext.Popup.show.confirm(POPUP_TITLE, "Forget this chat's medium-term memory? This cannot be undone.");
+        if (!confirmed) return;
+        const ok = await purgeMediumTermMemory(stContext);
+        ok ? toastr.success('Medium-term memory cleared for this chat.', POPUP_TITLE)
+            : toastr.error('Could not clear medium-term memory - see console.', POPUP_TITLE);
+    });
+
+    $('#df_memory_long_enabled').on('input', function () {
+        settings().memory.long.enabled = $(this).prop('checked');
+        save();
+    });
+    $('#df_memory_long_topk').on('input', function () {
+        settings().memory.long.topK = Math.max(1, Number($(this).val()) || 1);
+        save();
+    });
+    $('#df_memory_pin_add').on('click', async () => {
+        const input = document.getElementById('df_memory_pin_input');
+        const text = input.value;
+        if (!text.trim()) return;
+        const ok = await pinToLongTermMemory(stContext, text);
+        if (ok) {
+            input.value = '';
+            renderPinsList(stContext);
+            toastr.success('Pinned to long-term memory.', POPUP_TITLE);
+        } else {
+            toastr.error('Could not pin - see console.', POPUP_TITLE);
+        }
+    });
+    $('#df_memory_long_forget').on('click', async () => {
+        const confirmed = await stContext.Popup.show.confirm(POPUP_TITLE, "Forget every pin for this chat? This cannot be undone.");
+        if (!confirmed) return;
+        const ok = await clearAllPins(stContext);
+        renderPinsList(stContext);
+        ok ? toastr.success('All pins cleared for this chat.', POPUP_TITLE)
+            : toastr.error('Could not clear pins - see console.', POPUP_TITLE);
+    });
+    $('#df_memory_pins_list').on('click', async evt => {
+        const target = evt.target instanceof HTMLElement ? evt.target.closest('[data-action="unpin"]') : null;
+        if (!target) return;
+        const pinId = target.closest('.df-pin-row')?.dataset.id;
+        if (!pinId) return;
+        await unpinFromLongTermMemory(stContext, pinId);
+        renderPinsList(stContext);
+    });
+    $('#df_last_run_content').on('click', async evt => {
+        const target = evt.target instanceof HTMLElement ? evt.target.closest('[data-action="pin"]') : null;
+        if (!target) return;
+        const text = target.dataset.pinText;
+        if (!text) {
+            toastr.info('Nothing to pin - this output was empty.', POPUP_TITLE);
+            return;
+        }
+        const ok = await pinToLongTermMemory(stContext, text);
+        renderPinsList(stContext);
+        ok ? toastr.success('Pinned to long-term memory.', POPUP_TITLE)
+            : toastr.error('Could not pin - see console.', POPUP_TITLE);
+    });
+
+    $('#df_revise_enabled').on('input', function () {
+        settings().revise.enabled = $(this).prop('checked');
+        save();
+    });
+    $('#df_revise_show_button').on('input', function () {
+        settings().revise.showButton = $(this).prop('checked');
+        save();
+        refreshReviseButtons(stContext);
+    });
+    $('#df_revise_profile').on('input', function () {
+        settings().revise.profileId = $(this).val();
+        save();
+    });
+    $('#df_revise_max_tokens').on('input', function () {
+        settings().revise.maxTokens = Math.max(1, Number($(this).val()) || 1);
+        save();
+    });
+    $('#df_revise_history_depth').on('input', function () {
+        settings().revise.historyDepth = Math.max(0, Number($(this).val()) || 0);
+        save();
+    });
+    $('#df_revise_include_history').on('input', function () {
+        settings().revise.includeHistory = $(this).prop('checked');
+        save();
+    });
+    $('#df_revise_include_card').on('input', function () {
+        settings().revise.includeCard = $(this).prop('checked');
+        save();
+    });
+    $('#df_revise_include_persona').on('input', function () {
+        settings().revise.includePersona = $(this).prop('checked');
+        save();
+    });
+    $('#df_revise_include_world_info').on('input', function () {
+        settings().revise.includeWorldInfo = $(this).prop('checked');
+        save();
+    });
+    $('#df_revise_include_memory').on('input', function () {
+        settings().revise.includeMemory = $(this).prop('checked');
+        save();
+    });
+    $('#df_revise_template_add').on('click', () => {
+        addReviseTemplate('New template');
+        renderReviseTemplates();
+    });
 }
 
 /**
@@ -610,6 +950,7 @@ export function bindSettingsEvents(stContext) {
     bindPresetBar(stContext);
     bindPresetFields(stContext);
     bindStagesEvents(stContext);
+    bindReviseTemplatesEvents(stContext);
 
     // One shared listener keeps every rendered profile <select> in sync with Connection
     // Manager instead of re-registering a listener per dropdown per re-render (see

@@ -6,7 +6,10 @@ import {
     applyPendingOutputToMessage, renderMessageIfTouched,
 } from './src/inject.js';
 import { showStatus, hideStatus, registerCancelHandler, describeStatusEvent } from './src/status.js';
-import { renderAll, renderLastRun, bindSettingsEvents } from './src/ui.js';
+import { recordShortTermMemory } from './src/memory.js';
+import { maybeSummarize } from './src/summarize.js';
+import { refreshReviseButtons, bindReviseButtonHandlers } from './src/mesbuttons.js';
+import { renderAll, renderLastRun, renderPinsList, bindSettingsEvents } from './src/ui.js';
 
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 
@@ -59,6 +62,19 @@ async function onGenerationAfterCommands(type, params, dryRun) {
 
 function onMessageReceived(messageId) {
     const stContext = SillyTavern.getContext();
+
+    // Captured before applyPendingOutputToMessage runs, so a "show in chat" run doesn't store
+    // its own Director's Notes blockquote back into memory - only the model's actual reply.
+    // Independent of the pipeline's own enabled flag: memory records every reply regardless of
+    // whether a preset ran for this particular message.
+    const rawText = stContext.chat?.[messageId]?.mes;
+    if (settings().memory.enabled) {
+        // Chained (not parallel): maybeSummarize's own guards are cheap, and running it after
+        // the record call keeps the two in a predictable order without needing them to
+        // coordinate on shared state. Still entirely fire-and-forget from this handler's POV.
+        void recordShortTermMemory(stContext, rawText).then(() => maybeSummarize(stContext));
+    }
+
     applyPendingOutputToMessage(stContext, messageId);
 }
 
@@ -67,6 +83,13 @@ function onCharacterMessageRendered(messageId) {
     // Only re-renders and saves if applyPendingOutputToMessage actually touched this message.
     renderMessageIfTouched(stContext, messageId);
     stContext.saveChat?.();
+    refreshReviseButtons(stContext);
+}
+
+/** Fires when older messages are scrolled into view, and when a chat is (re)loaded - both
+ * cases put new .mes elements in the DOM that never went through CHARACTER_MESSAGE_RENDERED. */
+function onMoreMessagesLoaded() {
+    refreshReviseButtons(SillyTavern.getContext());
 }
 
 function onGenerationEnded() {
@@ -80,6 +103,15 @@ function onGenerationStopped() {
     clearPromptInjection(stContext);
     clearPendingOutput();
     hideStatus();
+}
+
+function onChatChanged() {
+    const stContext = SillyTavern.getContext();
+    // Pins are chat-scoped (chat metadata), so the drawer's pin list needs a refresh whenever
+    // the user switches chats - otherwise it keeps showing the previous chat's pins.
+    renderPinsList(stContext);
+    // The whole #chat DOM is replaced on a chat switch, so revise/undo buttons need reinjecting.
+    refreshReviseButtons(stContext);
 }
 
 jQuery(async () => {
@@ -97,12 +129,16 @@ jQuery(async () => {
         renderLastRun(null);
 
         registerCancelHandler(() => cancelCurrentRun());
+        bindReviseButtonHandlers(stContext);
+        refreshReviseButtons(stContext); // inject into whatever's already on screen at load
 
         stContext.eventSource.on(stContext.eventTypes.GENERATION_AFTER_COMMANDS, onGenerationAfterCommands);
         stContext.eventSource.on(stContext.eventTypes.MESSAGE_RECEIVED, onMessageReceived);
         stContext.eventSource.on(stContext.eventTypes.CHARACTER_MESSAGE_RENDERED, onCharacterMessageRendered);
         stContext.eventSource.on(stContext.eventTypes.GENERATION_ENDED, onGenerationEnded);
         stContext.eventSource.on(stContext.eventTypes.GENERATION_STOPPED, onGenerationStopped);
+        stContext.eventSource.on(stContext.eventTypes.CHAT_CHANGED, onChatChanged);
+        stContext.eventSource.on(stContext.eventTypes.MORE_MESSAGES_LOADED, onMoreMessagesLoaded);
 
         console.log(`[${extensionName}] Loaded successfully`);
     } catch (error) {

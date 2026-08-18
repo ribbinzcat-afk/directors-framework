@@ -1,5 +1,5 @@
 import { activePreset, settings, RUNNABLE_TYPES } from './store.js';
-import { scanWorldInfo, buildStageMessages } from './context.js';
+import { scanWorldInfo, scanMemory, buildStageMessages } from './context.js';
 
 /**
  * Module-level run state. Only one pipeline can be in flight at a time - SillyTavern itself
@@ -40,7 +40,7 @@ function isRateLimitError(error) {
 }
 
 /** @param {number} ms @param {AbortSignal} signal */
-function sleep(ms, signal) {
+export function sleep(ms, signal) {
     return new Promise((resolve, reject) => {
         if (signal.aborted) {
             reject(signal.reason ?? new Error('Aborted'));
@@ -64,9 +64,9 @@ function sleep(ms, signal) {
  * fails immediately, since retrying those would just waste time before surfacing the same
  * error. Delay doubles each attempt (5s, 10s).
  * @param {() => Promise<any>} fn
- * @param {{signal: AbortSignal, onStatus?: (info: object) => void, stage: import('./store.js').Stage}} opts
+ * @param {{signal: AbortSignal, onStatus?: (info: object) => void, stage: {name: string}}} opts `stage` only needs a `name` - callers outside the pipeline (e.g. revise.js) can pass any object shaped like one.
  */
-async function withRateLimitRetry(fn, { signal, onStatus, stage }) {
+export async function withRateLimitRetry(fn, { signal, onStatus, stage }) {
     for (let attempt = 0; ; attempt++) {
         try {
             return await fn();
@@ -190,7 +190,21 @@ async function runStage(stContext, stage, initialMessages, profileId, signal, on
  * why (e.g. "Profile not found (ID: ...)" or the provider's actual error message).
  * @param {unknown} error
  */
-function describeError(error) {
+/**
+ * Matches the browser's own SyntaxError text for "tried to JSON.parse an HTML page"
+ * (Chrome: `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`; Firefox: `JSON.parse:
+ * unexpected character`). SillyTavern's own ChatCompletionService/TextCompletionService
+ * (public/scripts/custom-request.js) call `response.json()` unconditionally, before checking
+ * `response.ok` - so any HTML error page from the actual API endpoint (a login page, a reverse
+ * proxy's 502/504 page, a CDN block page) surfaces as this cryptic parse error with none of the
+ * real cause. Can't fix that in ST core from an extension, so describeError below recognizes
+ * the pattern and appends a plain-language explanation instead of leaving just the raw message.
+ */
+function isHtmlResponseError(text) {
+    return /unexpected token '<'|doctype|<html|unexpected character/i.test(text);
+}
+
+export function describeError(error) {
     const parts = [];
     let current = error;
     const seen = new Set();
@@ -199,7 +213,18 @@ function describeError(error) {
         if (current.message) parts.push(current.message);
         current = current.cause;
     }
-    return parts.length > 0 ? parts.join(' - ') : String(error);
+    const joined = parts.length > 0 ? parts.join(' - ') : String(error);
+
+    if (isHtmlResponseError(joined)) {
+        return `${joined} — this means the API endpoint returned an HTML page instead of a `
+            + 'response, not an actual error message from the model. Usual causes: the '
+            + "Connection Profile's server URL is wrong or the server behind it is down/crashed "
+            + '(common for local backends like KoboldCpp/text-generation-webui), a reverse proxy '
+            + 'or gateway returned an error page (502/504), or a session/login page is being '
+            + 'served instead of the API. Try that same profile in a normal (non-pipeline) reply '
+            + 'first to confirm whether it works outside the pipeline.';
+    }
+    return joined;
 }
 
 function composeFinalOutput(stages, results) {
@@ -251,6 +276,7 @@ export async function runPipeline(stContext, { type, dryRun }, onStatus) {
     try {
         onStatus?.({ phase: 'world-info' });
         const worldInfo = await scanWorldInfo(preset, stContext);
+        const memory = await scanMemory(preset, stContext);
 
         for (const [index, stage] of enabledStages.entries()) {
             abortController.signal.throwIfAborted();
@@ -267,7 +293,7 @@ export async function runPipeline(stContext, { type, dryRun }, onStatus) {
             if (!profileId) {
                 throw new Error(`Stage "${stage.name}" has no Connection Profile selected and no profile is currently active - pick one in the stage or in the Connection Manager.`);
             }
-            const messages = buildStageMessages(preset, stage, stContext, worldInfo, results);
+            const messages = buildStageMessages(preset, stage, stContext, worldInfo, results, memory);
             const startedAt = Date.now();
             const output = await runStage(stContext, stage, messages, profileId, abortController.signal, onStatus);
             results[stage.id] = { stage, output, profileId, messages, startedAt, finishedAt: Date.now() };

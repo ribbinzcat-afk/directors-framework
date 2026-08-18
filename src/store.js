@@ -25,6 +25,7 @@ export const RUNNABLE_TYPES = ['normal', 'regenerate', 'swipe', 'continue'];
  * @property {boolean} includeHistory
  * @property {number|null} historyDepth null = use preset default
  * @property {boolean|null} includeWorldInfo null = use preset default
+ * @property {boolean|null} includeMemory null = use preset default
  * @property {boolean} includeInFinal
  * @property {{enabled: boolean, names: string[], mode: 'auto'|'required'}} tools
  */
@@ -44,11 +45,117 @@ export const RUNNABLE_TYPES = ['normal', 'regenerate', 'swipe', 'continue'];
  * @property {number|null} worldInfoScanDepth null = use historyDepth
  * @property {boolean} showInChat Also prepend the combined output to the reply's visible text, not just the reasoning block.
  * @property {number} stageDelaySeconds Wait this long before each stage after the first. Helps avoid provider rate limits when several stages hit the same API key back to back.
+ * @property {boolean} includeMemory Fold short-term memory (see settings().memory) into stage context.
  * @property {Stage[]} stages
+ */
+
+/**
+ * @typedef {Object} ReviseTemplate
+ * @property {string} id
+ * @property {string} name
+ * @property {string} prompt Must contain {{draft}}; should contain {{instruction}} if it's meant to react to free-typed instructions.
  */
 
 export function defaultInjectTemplate() {
     return '<director_notes>\n{{output}}\n</director_notes>';
+}
+
+export function defaultSummaryPrompt() {
+    return 'Summarize the following exchange in 3-5 sentences. Keep only facts, events, and '
+        + "changes to characters' relationships or state - do not quote dialogue verbatim, "
+        + 'and do not add commentary.\n\n{{chunk}}';
+}
+
+/** Appended to every default revise template: carries {{draft}}/{{instruction}} and the
+ * guardrails that keep the model from adding a preamble or drifting the story. */
+function reviseStandardEnding() {
+    return '\n\n<draft>\n{{draft}}\n</draft>\n\n{{instruction}}\n\n'
+        + 'ห้ามเปลี่ยน: มุมมอง ภาษา และตัวตนของตัวละคร\n'
+        + 'ผลลัพธ์: เนื้อเรื่องฉบับแก้แล้วล้วนๆ ห้ามมีคำนำ ห้ามอธิบายว่าแก้อะไร ห้ามมีหัวข้อ';
+}
+
+/** @returns {ReviseTemplate} */
+export function makeReviseTemplate(overrides = {}) {
+    return {
+        id: uuidv4(),
+        name: 'New template',
+        prompt: reviseStandardEnding(),
+        ...overrides,
+    };
+}
+
+/** @returns {ReviseTemplate[]} The 6 starter templates, so the revise popup is never empty. */
+export function defaultReviseTemplates() {
+    return [
+        makeReviseTemplate({
+            name: 'เกลาภาษา',
+            prompt: 'เกลาข้อความต่อไปนี้ให้อ่านลื่นและเป็นธรรมชาติเหมือนคนเขียนมากขึ้น\n\n'
+                + '■ จังหวะประโยค — สำคัญที่สุด\n'
+                + 'ร่างที่ AI เขียนมักมีประโยคยาวเท่าๆ กันหมด ให้แก้เป็นจังหวะไม่สม่ำเสมอ:\n'
+                + 'ประโยคยาวที่ไหลต่อเนื่อง แล้วตัดด้วยประโยคสั้น. สั้นมาก. แล้วค่อยยาวอีก\n'
+                + 'อนุญาตให้ใช้ประโยคไม่สมบูรณ์เพื่อเน้นจังหวะ\n\n'
+                + '■ ต้องลบทิ้ง\n'
+                + '- "ไม่ใช่...แต่..." → เขียนตรงๆ\n'
+                + '- การเรียงสามชิ้นทุกครั้ง ("เย็น เงียบ และว่างเปล่า") → เหลือสองหรือหนึ่งที่คมกว่า\n'
+                + '- ประโยคสรุปปิดท้ายย่อหน้าที่อธิบายว่าย่อหน้านั้นแปลว่าอะไร → ตัด จบตรงภาพหรือการกระทำ\n'
+                + '- การบอกชื่ออารมณ์หลังแสดงไปแล้ว ("...เธอรู้สึกเจ็บปวด") → เหลือแต่ภาพ\n'
+                + '- วลีสวยหรูที่ไม่ให้ข้อมูล ("บางอย่างในอากาศเปลี่ยนไป") → แทนด้วยรายละเอียดจับต้องได้\n\n'
+                + '■ วลีต้องห้าม (คลิเช AI)\n'
+                + 'ลมหายใจสะดุด / หัวใจเต้นแรงขึ้น / บางอย่างวาบขึ้นในดวงตา / กลืนน้ำลาย /\n'
+                + 'กำมือแน่นจนข้อนิ้วขาว / มุมปากกระตุก / ขากรรไกรแข็งเกร็ง / เวลาเหมือนหยุดนิ่ง\n\n'
+                + '■ คำฟุ่มเฟือย\n'
+                + 'ตัด "ราวกับ" "ดูเหมือนว่า" "เกือบจะ" "อย่างช้าๆ" "เบาๆ" ที่ไม่จำเป็น\n'
+                + 'ตัดชื่อตัวละครที่ซ้ำเกินไป — ภาษาไทยละประธานได้ ให้ละ\n'
+                + 'ระวังประโยคที่โครงสร้างเหมือนแปลจากอังกฤษ\n\n'
+                + '■ ห้ามแก้\n'
+                + 'เนื้อเรื่อง ลำดับเหตุการณ์ จำนวนย่อหน้า และความยาวโดยรวม\n'
+                + 'ตัดคำฟุ่มเฟือย ไม่ใช่ตัดฉาก'
+                + reviseStandardEnding(),
+        }),
+        makeReviseTemplate({
+            name: 'ตัดให้กระชับ',
+            prompt: 'ตัดข้อความต่อไปนี้ให้กระชับขึ้นประมาณ 30% โดยไม่ให้เนื้อหาหาย\n\n'
+                + '- ตัดคำขยายที่ไม่จำเป็น ประโยคซ้ำความ และการบรรยายที่ยืดเยื้อ\n'
+                + '- เก็บบทสนทนาและ beat สำคัญไว้ให้ครบทุกอัน\n'
+                + '- ห้ามตัดฉากหรือเหตุการณ์ออก ตัดแค่คำ'
+                + reviseStandardEnding(),
+        }),
+        makeReviseTemplate({
+            name: 'ขยายรายละเอียด',
+            prompt: 'ขยายข้อความต่อไปนี้ให้มีมิติขึ้น โดยไม่เพิ่มเหตุการณ์ใหม่\n\n'
+                + '- เพิ่มรายละเอียดทางประสาทสัมผัสที่เฉพาะเจาะจงกับฉากนี้ (ไม่ใช่การไล่เช็คลิสต์ กลิ่น/เสียง/แสง)\n'
+                + '- เพิ่มความคิดหรือปฏิกิริยาภายในของตัวละครตรงจุดที่ขาด\n'
+                + '- ห้ามเพิ่ม beat หรือเหตุการณ์ใหม่ ห้ามเปลี่ยนตอนจบ\n'
+                + '- ห้ามยืดด้วยคำฟุ่มเฟือยหรือวลีคลิเช'
+                + reviseStandardEnding(),
+        }),
+        makeReviseTemplate({
+            name: 'เพิ่มบทสนทนา',
+            prompt: 'ปรับสัดส่วนของข้อความต่อไปนี้ให้มีบทสนทนามากขึ้น\n\n'
+                + '- แปลงคำบรรยายที่สรุปว่าตัวละคร "พูดอะไร" ให้เป็นคำพูดจริง\n'
+                + '- ให้ตัวละครพูดขัดจังหวะ พูดไม่จบประโยค หรือตอบไม่ตรงคำถามได้ตามธรรมชาติ\n'
+                + '- ไม่ต้องใส่ action beat ต่อท้ายทุกบรรทัด บางบรรทัดปล่อยเป็นคำพูดเปล่าๆ\n'
+                + '- เหตุการณ์และตอนจบต้องเหมือนเดิม'
+                + reviseStandardEnding(),
+        }),
+        makeReviseTemplate({
+            name: 'ตรวจความสอดคล้อง',
+            prompt: 'ตรวจข้อความต่อไปนี้เทียบกับการ์ดตัวละคร ข้อมูลโลก และบทสนทนาที่ผ่านมา\n\n'
+                + 'แก้เฉพาะจุดที่ขัดแย้งจริง:\n'
+                + '- {{char}} พูดหรือทำหลุดนิสัย\n'
+                + '- ขัดกับข้อเท็จจริงที่เคยระบุไว้ (ชื่อ สถานที่ ความสัมพันธ์ เหตุการณ์)\n'
+                + '- ขัดกับสิ่งที่เพิ่งเกิดขึ้นในบทสนทนา\n\n'
+                + 'ถ้าไม่พบความขัดแย้ง ให้ส่งข้อความเดิมคืนมาทั้งหมดโดยไม่แก้อะไรเลย\n'
+                + 'ห้ามเกลาสำนวนหรือปรับความยาวในโหมดนี้ แก้เฉพาะความขัดแย้งเท่านั้น'
+                + reviseStandardEnding(),
+        }),
+        makeReviseTemplate({
+            name: 'ตามคำสั่ง',
+            prompt: 'แก้ไขข้อความต่อไปนี้ตามคำสั่งด้านล่าง\n\n'
+                + 'แก้เฉพาะสิ่งที่คำสั่งระบุ ส่วนที่เหลือเก็บไว้ให้เหมือนเดิมมากที่สุด'
+                + reviseStandardEnding(),
+        }),
+    ];
 }
 
 /** @returns {Stage} */
@@ -65,6 +172,7 @@ export function makeStage(overrides = {}) {
         includeHistory: true,
         historyDepth: null,
         includeWorldInfo: null,
+        includeMemory: null,
         includeInFinal: true,
         tools: { enabled: false, names: [], mode: 'auto' },
         ...overrides,
@@ -87,6 +195,7 @@ export function makePreset(overrides = {}) {
         worldInfoScanDepth: null,
         showInChat: false,
         stageDelaySeconds: 0,
+        includeMemory: false,
         stages: [],
         ...overrides,
     };
@@ -120,6 +229,50 @@ export function defaultSettings() {
         runOnTypes: ['normal', 'regenerate', 'swipe'],
         showStatusBar: true,
         keepLastRun: true,
+        // Short-term memory: separate top-level toggle from `enabled` above, since recording
+        // happens on every reply regardless of which preset (if any) is active or whether the
+        // pipeline even ran for that message.
+        // Medium-term (Phase 2) nests under it: it's short-term's overflow tier, so it can
+        // only run while short-term recording itself is on (see maybeSummarize's guard).
+        // Long-term (Phase 3) is independent of both: manually curated ("pinned"), never
+        // auto-written or auto-deleted, so it does NOT depend on memory.enabled the way
+        // medium does - a user can pin facts and recall them with short-term off entirely.
+        memory: {
+            enabled: false,
+            topK: 3,
+            medium: {
+                enabled: false,
+                everyNReplies: 10,
+                topK: 3,
+                summaryProfileId: '', // '' = use the currently selected Connection Profile
+                summaryPrompt: defaultSummaryPrompt(),
+            },
+            long: {
+                enabled: false,
+                topK: 3,
+            },
+        },
+        // On-demand revise (Phase 4): a button on each AI message, not part of the automatic
+        // pipeline - runs once, only when clicked, against a chosen template + optional typed
+        // instruction. Top-level like memory, not per-preset: revise applies to whatever
+        // message is on screen regardless of which preset produced it.
+        revise: (() => {
+            const templates = defaultReviseTemplates();
+            return {
+                enabled: true,
+                showButton: true,
+                profileId: '', // '' = use the currently selected Connection Profile
+                maxTokens: 1800, // must be large enough for a full reply - 512 (stage default) cuts it off
+                templates,
+                defaultTemplateId: templates[0].id, // "เกลาภาษา"
+                includeHistory: true,
+                historyDepth: 10,
+                includeCard: true,
+                includePersona: true,
+                includeWorldInfo: false, // off by default - revise is mostly a language pass
+                includeMemory: false,
+            };
+        })(),
         presets: [starter],
     };
 }
@@ -161,6 +314,54 @@ export function loadSettings() {
     }
     if (!Array.isArray(stored.runOnTypes) || stored.runOnTypes.length === 0) {
         stored.runOnTypes = ['normal', 'regenerate', 'swipe'];
+    }
+    if (!stored.memory || typeof stored.memory !== 'object') {
+        stored.memory = structuredClone(defaults.memory);
+    } else {
+        if (typeof stored.memory.enabled !== 'boolean') stored.memory.enabled = false;
+        if (!Number.isFinite(stored.memory.topK) || stored.memory.topK < 1) stored.memory.topK = 3;
+        if (!stored.memory.medium || typeof stored.memory.medium !== 'object') {
+            stored.memory.medium = structuredClone(defaults.memory.medium);
+        } else {
+            const medium = stored.memory.medium;
+            if (typeof medium.enabled !== 'boolean') medium.enabled = false;
+            if (!Number.isFinite(medium.everyNReplies) || medium.everyNReplies < 1) medium.everyNReplies = 10;
+            if (!Number.isFinite(medium.topK) || medium.topK < 1) medium.topK = 3;
+            if (typeof medium.summaryProfileId !== 'string') medium.summaryProfileId = '';
+            if (typeof medium.summaryPrompt !== 'string' || !medium.summaryPrompt) medium.summaryPrompt = defaultSummaryPrompt();
+        }
+        if (!stored.memory.long || typeof stored.memory.long !== 'object') {
+            stored.memory.long = structuredClone(defaults.memory.long);
+        } else {
+            if (typeof stored.memory.long.enabled !== 'boolean') stored.memory.long.enabled = false;
+            if (!Number.isFinite(stored.memory.long.topK) || stored.memory.long.topK < 1) stored.memory.long.topK = 3;
+        }
+    }
+    if (!stored.revise || typeof stored.revise !== 'object') {
+        stored.revise = structuredClone(defaults.revise);
+    } else {
+        const revise = stored.revise;
+        if (typeof revise.enabled !== 'boolean') revise.enabled = true;
+        if (typeof revise.showButton !== 'boolean') revise.showButton = true;
+        if (typeof revise.profileId !== 'string') revise.profileId = '';
+        if (!Number.isFinite(revise.maxTokens) || revise.maxTokens < 1) revise.maxTokens = 1800;
+        if (typeof revise.includeHistory !== 'boolean') revise.includeHistory = true;
+        if (!Number.isFinite(revise.historyDepth) || revise.historyDepth < 0) revise.historyDepth = 10;
+        if (typeof revise.includeCard !== 'boolean') revise.includeCard = true;
+        if (typeof revise.includePersona !== 'boolean') revise.includePersona = true;
+        if (typeof revise.includeWorldInfo !== 'boolean') revise.includeWorldInfo = false;
+        if (typeof revise.includeMemory !== 'boolean') revise.includeMemory = false;
+        if (!Array.isArray(revise.templates) || revise.templates.length === 0) {
+            revise.templates = defaultReviseTemplates();
+        } else {
+            revise.templates = revise.templates
+                .filter(t => t && typeof t.id === 'string' && typeof t.name === 'string' && typeof t.prompt === 'string')
+                .map(t => makeReviseTemplate(t));
+            if (revise.templates.length === 0) revise.templates = defaultReviseTemplates();
+        }
+        if (!revise.templates.some(t => t.id === revise.defaultTemplateId)) {
+            revise.defaultTemplateId = revise.templates[0].id;
+        }
     }
 
     // Backfill any fields added to the schema after presets/stages already existed on disk.
@@ -320,6 +521,89 @@ export function pruneForwardDependencies(preset) {
     }
 }
 
+// ---------------------------------------------------------------- revise template CRUD
+
+export function findReviseTemplate(templateId) {
+    return settings().revise.templates.find(t => t.id === templateId) ?? null;
+}
+
+/** Resolves a template for runRevise: the requested id, falling back to defaultTemplateId,
+ * falling back to the first template in the list. Never returns null as long as the list is
+ * non-empty, which loadSettings()/deleteReviseTemplate() both guarantee. */
+export function resolveReviseTemplate(templateId) {
+    return findReviseTemplate(templateId)
+        ?? findReviseTemplate(settings().revise.defaultTemplateId)
+        ?? settings().revise.templates[0]
+        ?? null;
+}
+
+export function addReviseTemplate(name) {
+    const template = makeReviseTemplate({ name: name || 'New template' });
+    settings().revise.templates.push(template);
+    save();
+    return template;
+}
+
+export function duplicateReviseTemplate(templateId) {
+    const source = findReviseTemplate(templateId);
+    if (!source) return null;
+    const clone = makeReviseTemplate({ ...source, id: uuidv4(), name: `${source.name} (copy)` });
+    const templates = settings().revise.templates;
+    templates.splice(templates.indexOf(source) + 1, 0, clone);
+    save();
+    return clone;
+}
+
+/** Removes a template. If it was the last one, a fresh default set is restored (never leave
+ * the revise popup with nothing to pick). If it was defaultTemplateId, that now points at
+ * whatever ends up first in the list. */
+export function deleteReviseTemplate(templateId) {
+    const revise = settings().revise;
+    const index = revise.templates.findIndex(t => t.id === templateId);
+    if (index === -1) return false;
+    revise.templates.splice(index, 1);
+    if (revise.templates.length === 0) {
+        revise.templates = defaultReviseTemplates();
+    }
+    if (!revise.templates.some(t => t.id === revise.defaultTemplateId)) {
+        revise.defaultTemplateId = revise.templates[0].id;
+    }
+    save();
+    return true;
+}
+
+export function renameReviseTemplate(templateId, name) {
+    const template = findReviseTemplate(templateId);
+    if (!template || !name) return;
+    template.name = name;
+    save();
+}
+
+export function updateReviseTemplatePrompt(templateId, prompt) {
+    const template = findReviseTemplate(templateId);
+    if (!template) return;
+    template.prompt = String(prompt ?? '');
+    save();
+}
+
+export function setDefaultReviseTemplate(templateId) {
+    const revise = settings().revise;
+    if (!revise.templates.some(t => t.id === templateId)) return;
+    revise.defaultTemplateId = templateId;
+    save();
+}
+
+export function reorderReviseTemplates(orderedTemplateIds) {
+    const revise = settings().revise;
+    const byId = new Map(revise.templates.map(t => [t.id, t]));
+    const reordered = orderedTemplateIds.map(id => byId.get(id)).filter(Boolean);
+    for (const template of revise.templates) {
+        if (!orderedTemplateIds.includes(template.id)) reordered.push(template);
+    }
+    revise.templates = reordered;
+    save();
+}
+
 // ---------------------------------------------------------------- import / export
 
 export function exportPreset(presetId) {
@@ -371,6 +655,7 @@ export function sanitizeImportedPresets(data) {
                 includeHistory: rawStage.includeHistory !== false,
                 historyDepth: Number.isFinite(rawStage.historyDepth) ? rawStage.historyDepth : null,
                 includeWorldInfo: typeof rawStage.includeWorldInfo === 'boolean' ? rawStage.includeWorldInfo : null,
+                includeMemory: typeof rawStage.includeMemory === 'boolean' ? rawStage.includeMemory : null,
                 includeInFinal: rawStage.includeInFinal !== false,
                 tools: {
                     enabled: !!rawStage.tools?.enabled,
@@ -395,6 +680,7 @@ export function sanitizeImportedPresets(data) {
             worldInfoScanDepth: Number.isFinite(rawPreset.worldInfoScanDepth) ? rawPreset.worldInfoScanDepth : null,
             showInChat: !!rawPreset.showInChat,
             stageDelaySeconds: Number.isFinite(rawPreset.stageDelaySeconds) ? Math.max(0, rawPreset.stageDelaySeconds) : 0,
+            includeMemory: !!rawPreset.includeMemory,
             stages,
         });
         pruneForwardDependencies(preset);

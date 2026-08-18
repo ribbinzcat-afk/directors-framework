@@ -33,6 +33,151 @@
 
             <hr class="df-divider" />
 
+            <b>Memory <small>(experimental)</small></b>
+            <p>
+                <small>
+                    Every reply is embedded and stored per-chat via SillyTavern's own vector
+                    search (the free, local <code>transformers</code> source - no API key, no
+                    extra setup). Stages with "short-term memory" turned on get the most
+                    relevant past replies pulled back into their context, not just the last few
+                    messages. First use downloads the embedding model on the server once, so the
+                    first reply after turning this on may be a bit slower.
+                </small>
+            </p>
+            <label class="checkbox_label" for="df_memory_enabled">
+                <input id="df_memory_enabled" type="checkbox" />
+                <span>Enable short-term memory recording</span>
+            </label>
+            <div class="df-field-row">
+                <label for="df_memory_topk">Results to recall</label>
+                <input id="df_memory_topk" type="number" min="1" max="20" class="text_pole" />
+            </div>
+            <div id="df_memory_forget" class="menu_button menu_button_icon interactable" tabindex="0">
+                <i class="fa-solid fa-trash-can"></i>
+                <span>Forget this chat's short-term memory</span>
+            </div>
+
+            <div class="df-memory-medium">
+                <label class="checkbox_label" for="df_memory_medium_enabled">
+                    <input id="df_memory_medium_enabled" type="checkbox" />
+                    <span>Enable medium-term memory (periodic summaries)</span>
+                </label>
+                <p>
+                    <small>
+                        Every N replies, the last N messages are compressed into a short summary
+                        by an LLM call and moved from short-term into medium-term - so old detail
+                        isn't lost when it ages out of short-term, just condensed. Needs its own
+                        Connection Profile (usually a fast/cheap one is enough).
+                    </small>
+                </p>
+                <div class="df-field-row">
+                    <label for="df_memory_medium_every">Summarize every N replies</label>
+                    <input id="df_memory_medium_every" type="number" min="1" class="text_pole" />
+                </div>
+                <div class="df-field-row">
+                    <label for="df_memory_medium_topk">Results to recall</label>
+                    <input id="df_memory_medium_topk" type="number" min="1" max="20" class="text_pole" />
+                </div>
+                <div class="df-field-row">
+                    <label for="df_memory_summary_profile">Summarizer Connection Profile</label>
+                    <select id="df_memory_summary_profile" class="text_pole"></select>
+                </div>
+                <div class="df-field-row df-field-row-wide">
+                    <label for="df_memory_summary_prompt">Summary prompt <small>(use <code>{{chunk}}</code>)</small></label>
+                    <textarea id="df_memory_summary_prompt" class="text_pole" rows="3"></textarea>
+                </div>
+                <div id="df_memory_medium_forget" class="menu_button menu_button_icon interactable" tabindex="0">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>Forget this chat's medium-term memory</span>
+                </div>
+            </div>
+
+            <div class="df-memory-long">
+                <label class="checkbox_label" for="df_memory_long_enabled">
+                    <input id="df_memory_long_enabled" type="checkbox" />
+                    <span>Enable long-term memory (pinned facts)</span>
+                </label>
+                <p>
+                    <small>
+                        Facts you pin by hand - never written or deleted automatically. Works
+                        independently of short/medium-term: you can pin and recall facts even
+                        with those turned off. Pin from a stage's output in the Last run log
+                        below, or add one directly here.
+                    </small>
+                </p>
+                <div class="df-field-row">
+                    <label for="df_memory_long_topk">Results to recall</label>
+                    <input id="df_memory_long_topk" type="number" min="1" max="20" class="text_pole" />
+                </div>
+                <div class="df-field-row df-field-row-wide">
+                    <label for="df_memory_pin_input">Add a pinned fact</label>
+                    <textarea id="df_memory_pin_input" class="text_pole" rows="2" placeholder="e.g. Aria's real name is Kestrel - she hides it from everyone but {{user}}."></textarea>
+                </div>
+                <div class="flex-container marginTop5">
+                    <div id="df_memory_pin_add" class="menu_button menu_button_icon interactable" tabindex="0">
+                        <i class="fa-solid fa-thumbtack"></i>
+                        <span>Pin</span>
+                    </div>
+                    <div id="df_memory_long_forget" class="menu_button menu_button_icon interactable" tabindex="0">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <span>Forget all pins for this chat</span>
+                    </div>
+                </div>
+                <div id="df_memory_pins_list" class="df-pins-list"></div>
+            </div>
+
+            <hr class="df-divider" />
+
+            <b>Revise</b>
+            <p>
+                <small>
+                    Adds a <i class="fa-solid fa-wand-magic-sparkles"></i> button to every AI
+                    message (in "Message Actions"). Click it, pick a template (or type your own
+                    instruction), and that one message is rewritten in place - the reply
+                    SillyTavern already generated is the draft, so this edits it directly rather
+                    than running a shadow draft through the pipeline. A
+                    <i class="fa-solid fa-rotate-left"></i> undo button appears once a message
+                    has been revised.
+                </small>
+            </p>
+            <label class="checkbox_label" for="df_revise_enabled">
+                <input id="df_revise_enabled" type="checkbox" />
+                <span>Enable revise</span>
+            </label>
+            <label class="checkbox_label" for="df_revise_show_button">
+                <input id="df_revise_show_button" type="checkbox" />
+                <span>Show the revise button on messages</span>
+            </label>
+            <div class="df-field-row">
+                <label for="df_revise_profile">Connection Profile</label>
+                <select id="df_revise_profile" class="text_pole"></select>
+            </div>
+            <div class="df-field-row">
+                <label for="df_revise_max_tokens">Max tokens</label>
+                <input id="df_revise_max_tokens" type="number" min="1" class="text_pole" />
+            </div>
+            <div class="df-field-row">
+                <label for="df_revise_history_depth">History depth</label>
+                <input id="df_revise_history_depth" type="number" min="0" class="text_pole" />
+            </div>
+            <label class="checkbox_label" for="df_revise_include_history"><input id="df_revise_include_history" type="checkbox" /><span>Include chat history</span></label>
+            <label class="checkbox_label" for="df_revise_include_card"><input id="df_revise_include_card" type="checkbox" /><span>Include character card</span></label>
+            <label class="checkbox_label" for="df_revise_include_persona"><input id="df_revise_include_persona" type="checkbox" /><span>Include user persona</span></label>
+            <label class="checkbox_label" for="df_revise_include_world_info"><input id="df_revise_include_world_info" type="checkbox" /><span>Include World Info / lorebook</span></label>
+            <label class="checkbox_label" for="df_revise_include_memory"><input id="df_revise_include_memory" type="checkbox" /><span>Include memory (see the Memory section above)</span></label>
+
+            <div class="df-stages-header flex-container flexGap5">
+                <b>Templates</b>
+                <div id="df_revise_template_add" class="menu_button menu_button_icon interactable" tabindex="0">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>Add template</span>
+                </div>
+            </div>
+            <p><small>Each template must contain <code>{{draft}}</code> (the message being revised) - if it doesn't, the draft is appended automatically. Include <code>{{instruction}}</code> to react to whatever the popup's free-text box was used for.</small></p>
+            <div id="df_revise_templates"></div>
+
+            <hr class="df-divider" />
+
             <div class="df-preset-bar flex-container flexGap5">
                 <select id="df_preset_select" class="text_pole flex1"></select>
                 <div id="df_preset_new" class="menu_button menu_button_icon interactable" tabindex="0" title="New preset"><i class="fa-solid fa-plus"></i></div>
@@ -76,6 +221,7 @@
                 <label class="checkbox_label" for="df_include_card"><input id="df_include_card" type="checkbox" /><span>Include character card (description/personality/scenario)</span></label>
                 <label class="checkbox_label" for="df_include_persona"><input id="df_include_persona" type="checkbox" /><span>Include user persona</span></label>
                 <label class="checkbox_label" for="df_include_world_info"><input id="df_include_world_info" type="checkbox" /><span>Include World Info / lorebook</span></label>
+                <label class="checkbox_label" for="df_include_memory"><input id="df_include_memory" type="checkbox" /><span>Include short-term memory (see the Memory section below - must be enabled there too)</span></label>
                 <label class="checkbox_label" for="df_show_in_chat"><input id="df_show_in_chat" type="checkbox" /><span>Also show the combined output in the visible reply (not just the reasoning block)</span></label>
                 <div class="df-field-row">
                     <label for="df_stage_delay">Delay between stages (seconds)</label>
