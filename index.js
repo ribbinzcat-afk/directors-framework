@@ -9,6 +9,7 @@ import { showStatus, hideStatus, registerCancelHandler, describeStatusEvent } fr
 import { recordShortTermMemory } from './src/memory.js';
 import { maybeSummarize } from './src/summarize.js';
 import { refreshReviseButtons, bindReviseButtonHandlers } from './src/mesbuttons.js';
+import { addWandToggleButton } from './src/wandmenu.js';
 import { renderAll, renderLastRun, renderPinsList, bindSettingsEvents } from './src/ui.js';
 
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
@@ -131,6 +132,7 @@ jQuery(async () => {
         registerCancelHandler(() => cancelCurrentRun());
         bindReviseButtonHandlers(stContext);
         refreshReviseButtons(stContext); // inject into whatever's already on screen at load
+        addWandToggleButton(stContext);
 
         stContext.eventSource.on(stContext.eventTypes.GENERATION_AFTER_COMMANDS, onGenerationAfterCommands);
         stContext.eventSource.on(stContext.eventTypes.MESSAGE_RECEIVED, onMessageReceived);

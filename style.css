@@ -11,6 +11,63 @@
     margin: 10px 0;
 }
 
+/* ---------------------------------------------------------------- top-level layout */
+
+/* "General" - the always-visible section (not a collapsible drawer, unlike everything
+ * below it): it's short and holds the single most important control (the on/off switch),
+ * so it shouldn't need an extra click to reach. */
+.df-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 10px 0;
+}
+
+.df-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: calc(var(--mainFontSize) * 1.05);
+    margin-bottom: 2px;
+}
+
+.df-section-title i {
+    opacity: 0.85;
+    width: 1.1em;
+    text-align: center;
+}
+
+/* Memory / Revise / Presets & Stages / Last run log - each its own collapsible drawer, so
+ * only the one thing you're working on is ever expanded at once instead of one long scroll. */
+.df-subdrawer {
+    margin: 10px 0;
+    padding: 0 8px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    /* Slightly darker than the --black30a cards nested inside it (stages, memory tiers,
+     * templates), so the category container visually recedes behind its own contents. */
+    background-color: var(--black50a);
+}
+
+.df-subdrawer > .inline-drawer-content {
+    padding-bottom: 8px;
+}
+
+/* Groups a header's icon + label into one flex item, so .inline-drawer-header's
+ * `justify-content: space-between` pushes only two things apart (this group and the chevron)
+ * instead of spreading the icon away from its own label. */
+.df-subdrawer-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.df-subdrawer-title i {
+    opacity: 0.85;
+    width: 1.1em;
+    text-align: center;
+}
+
 .df-run-on-types {
     display: flex;
     flex-wrap: wrap;
@@ -340,4 +397,16 @@
 .df-revise-popup select,
 .df-revise-popup textarea {
     width: 100%;
+}
+
+/* ---------------------------------------------------------------- wand menu toggle */
+
+#df_wand_toggle .df-wand-toggle-icon {
+    margin-left: auto;
+    opacity: 0.6;
+}
+
+#df_wand_toggle.df-wand-enabled .df-wand-toggle-icon {
+    opacity: 1;
+    color: var(--SmartThemeQuoteColor, seagreen);
 }

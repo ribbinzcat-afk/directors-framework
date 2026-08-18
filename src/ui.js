@@ -11,6 +11,7 @@ import {
 import { purgeShortTermMemory, purgeMediumTermMemory } from './memory.js';
 import { listPins, pinToLongTermMemory, unpinFromLongTermMemory, clearAllPins } from './pins.js';
 import { refreshReviseButtons } from './mesbuttons.js';
+import { refreshWandToggleState } from './wandmenu.js';
 
 const POPUP_TITLE = "Director's Framework";
 
@@ -290,6 +291,7 @@ function renderGlobalControls(stContext) {
     const cfg = settings();
     document.getElementById('df_enabled').checked = cfg.enabled;
     document.getElementById('df_status_bar').checked = cfg.showStatusBar;
+    refreshWandToggleState();
     for (const checkbox of document.querySelectorAll('.df-run-type')) {
         checkbox.checked = cfg.runOnTypes.includes(checkbox.value);
     }
@@ -778,6 +780,7 @@ function bindGlobalControls(stContext) {
     $('#df_enabled').on('input', function () {
         settings().enabled = $(this).prop('checked');
         save();
+        refreshWandToggleState(); // keep the wand-menu shortcut's icon in sync
     });
     $('#df_status_bar').on('input', function () {
         settings().showStatusBar = $(this).prop('checked');

@@ -54,6 +54,12 @@ injected into the final prompt and, optionally, written into the reply's reasoni
   with a cancel button.
 - **Last run log**: a collapsible drawer showing, per stage, the exact prompt sent, the
   output, the profile used, and how long it took.
+- **Wand-menu shortcut**: a <i class="fa-solid fa-clapperboard"></i> item in the wand
+  (<i class="fa-solid fa-wand-magic-sparkles"></i>) menu next to the chat box toggles the
+  whole extension on/off without opening the settings drawer - its icon (and the settings
+  checkbox) always stay in sync with each other.
+- **Organized settings**: Memory, Revise, and Presets & Stages each live in their own
+  collapsible section, so only what you're working on is ever expanded.
 
 ## Installation
 
