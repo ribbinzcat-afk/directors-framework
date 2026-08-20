@@ -11,7 +11,7 @@ import {
 import { purgeShortTermMemory, purgeMediumTermMemory } from './memory.js';
 import { listPins, pinToLongTermMemory, unpinFromLongTermMemory, clearAllPins } from './pins.js';
 import { refreshReviseButtons } from './mesbuttons.js';
-import { refreshWandToggleState } from './wandmenu.js';
+import { refreshWandToggleState, refreshMemoryWandToggleState } from './wandmenu.js';
 
 const POPUP_TITLE = "Director's Framework";
 
@@ -297,6 +297,7 @@ function renderGlobalControls(stContext) {
     }
     document.getElementById('df_memory_enabled').checked = cfg.memory.enabled;
     document.getElementById('df_memory_topk').value = String(cfg.memory.topK);
+    refreshMemoryWandToggleState();
 
     const medium = cfg.memory.medium;
     document.getElementById('df_memory_medium_enabled').checked = medium.enabled;
@@ -804,6 +805,7 @@ function bindGlobalControls(stContext) {
     $('#df_memory_enabled').on('input', function () {
         settings().memory.enabled = $(this).prop('checked');
         save();
+        refreshMemoryWandToggleState(); // keep the wand-menu shortcut's icon in sync
     });
     $('#df_memory_topk').on('input', function () {
         settings().memory.topK = Math.max(1, Number($(this).val()) || 1);

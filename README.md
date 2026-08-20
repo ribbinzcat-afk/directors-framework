@@ -54,10 +54,13 @@ injected into the final prompt and, optionally, written into the reply's reasoni
   with a cancel button.
 - **Last run log**: a collapsible drawer showing, per stage, the exact prompt sent, the
   output, the profile used, and how long it took.
-- **Wand-menu shortcut**: a <i class="fa-solid fa-clapperboard"></i> item in the wand
-  (<i class="fa-solid fa-wand-magic-sparkles"></i>) menu next to the chat box toggles the
-  whole extension on/off without opening the settings drawer - its icon (and the settings
-  checkbox) always stay in sync with each other.
+- **Wand-menu shortcuts**: two independent toggles in the wand
+  (<i class="fa-solid fa-wand-magic-sparkles"></i>) menu next to the chat box -
+  <i class="fa-solid fa-clapperboard"></i> for the pipeline, <i class="fa-solid fa-brain"></i>
+  for memory recording - so either can be switched on/off without opening the settings drawer.
+  Genuinely independent: memory recording only ever checks its own flag, never the pipeline's,
+  so someone who wants memory with zero pipeline LLM calls can leave the pipeline off and just
+  toggle memory. Each icon always stays in sync with its matching settings checkbox.
 - **Organized settings**: Memory, Revise, and Presets & Stages each live in their own
   collapsible section, so only what you're working on is ever expanded.
 

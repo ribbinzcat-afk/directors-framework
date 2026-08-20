@@ -401,12 +401,12 @@
 
 /* ---------------------------------------------------------------- wand menu toggle */
 
-#df_wand_toggle .df-wand-toggle-icon {
+.df-wand-btn .df-wand-toggle-icon {
     margin-left: auto;
     opacity: 0.6;
 }
 
-#df_wand_toggle.df-wand-enabled .df-wand-toggle-icon {
+.df-wand-btn.df-wand-enabled .df-wand-toggle-icon {
     opacity: 1;
     color: var(--SmartThemeQuoteColor, seagreen);
 }
